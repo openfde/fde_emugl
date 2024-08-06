@@ -1,0 +1,14 @@
+Source: kylin-kmre-emugl
+Section: libs
+Priority: optional
+Maintainer: mc <machao@kylinos.cn>
+Build-Depends: debhelper (>=9), libpciaccess-dev, libgl1-mesa-dev, g++, cmake, libgtest-dev, libboost-dev, uuid-dev, liblz4-dev, libunwind8-dev, libgles2-mesa-dev, libx11-dev, libxcb-dri3-dev, libdrm-dev
+Standards-Version: 3.9.6
+Homepage: http://www.kylinos.cn
+
+Package: libkylin-kmre-emugl
+Section: libs
+Architecture: arm64 amd64
+Conflicts: kydroid2, kydroid2-app-data, kydroid2-daemon, kydroid2-filewatcher, kydroid2-fuse, kydroid2-image-data, libkydroid-emugl-normal
+Depends: ${shlibs:Depends}, ${misc:Depends}, libegl1-mesa (>=18.0), libgl1-mesa-glx (>=18.0), libgles2-mesa (>=18.0)
+Description: emugl libraries for kylin-kmre.

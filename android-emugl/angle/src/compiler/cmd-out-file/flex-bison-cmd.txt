@@ -1,0 +1,10 @@
+flex --noline --nounistd --outfile=translator/glslang_lex.cpp translator/glslang.l
+
+bison --no-lines --skeleton=yacc.c --defines=translator/glslang_tab.h --output=translator/glslang_tab.cpp translator/glslang.y
+
+flex --noline --nounistd --outfile=preprocessor/Tokenizer.cpp preprocessor/Tokenizer.l
+flex --noline --nounistd --outfile=preprocessor/Tokenizer.cpp preprocessor/preprocessor.l
+
+bison --no-lines --skeleton=yacc.c --output=preprocessor/ExpressionParser.cpp preprocessor/ExpressionParser.y
+
+bison --no-lines --skeleton=yacc.c --output=preprocessor/ExpressionParser.cpp preprocessor/preprocessor.y
