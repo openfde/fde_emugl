@@ -315,6 +315,59 @@ bool isGLESDynamicVersionEnabled() {
     return emugl_feature_is_enabled(android::featurecontrol::GLESDynamicVersion);
 }
 
+
+static android::base::StringView maxVersionToFeatureString(GLESDispatchMaxVersion version) {
+    switch (version) {
+        case GLES_DISPATCH_MAX_VERSION_2:
+            return kGLESDynamicVersion_2;
+        case GLES_DISPATCH_MAX_VERSION_3_0:
+            return kGLESDynamicVersion_3_0;
+        case GLES_DISPATCH_MAX_VERSION_3_1:
+            return kGLESDynamicVersion_3_1;
+        default:
+            return kGLESDynamicVersion_2;
+    }
+}
+
+// OpenGL ES 3.x support involves changing the GL_VERSION string, which is
+// assumed to be formatted in the following way:
+// "OpenGL ES-CM 1.m <vendor-info>" or
+// "OpenGL ES M.m <vendor-info>"
+// where M is the major version number and m is minor version number.  If the
+// GL_VERSION string doesn't reflect the maximum available version of OpenGL
+// ES, many apps will not be able to detect support.  We need to mess with the
+// version string in the first place since the underlying backend (whether it
+// is Translator, SwiftShader, ANGLE, et al) may not advertise a GL_VERSION
+// string reflecting their maximum capabilities.
+static std::string replaceESVersionString(const std::string& prev,
+                                   android::base::StringView newver) {
+
+    // There is no need to fiddle with the string
+    // if we are in a ES 1.x context.
+    // Such contexts are considered as a special case that must
+    // be untouched.
+    if (prev.find("ES-CM") != std::string::npos) {
+        return prev;
+    }
+
+    size_t esStart = prev.find("ES ");
+    size_t esEnd = prev.find(" ", esStart + 3);
+
+    if (esStart == std::string::npos ||
+        esEnd == std::string::npos) {
+        // Account for out-of-spec version strings.
+        fprintf(stderr, "%s: Error: invalid OpenGL ES version string %s\n",
+                __func__, prev.c_str());
+        return prev;
+    }
+
+    std::string res = prev.substr(0, esStart + 3);
+    res += newver;
+    res += prev.substr(esEnd);
+
+    return res;
+}
+
 static EGLint rcGetGLString_filter(EGLenum name, void* buffer, EGLint bufferSize) {
     RenderThreadInfo* tInfo = RenderThreadInfo::get();
     std::string result;
@@ -330,13 +383,30 @@ static EGLint rcGetGLString_filter(EGLenum name, void* buffer, EGLint bufferSize
         if (str) {
             result += str;
         }
-    }  
+    }
 
-    if (name == GL_VERSION) {        
-        if (!isGLESDynamicVersionEnabled()) {
-            result = "OpenGL ES 2.0";
+    if (name == GL_VERSION) {
+        if (isGLESDynamicVersionEnabled()) {
+            GLESDispatchMaxVersion maxVersion = FrameBuffer::getMaxGLESVersion();
+            switch (maxVersion) {
+            // Underlying GLES implmentation's max version string
+            // is allowed to be higher than the version of the request
+            // for the context---it can create a higher version context,
+            // and return simply the max possible version overall.
+            case GLES_DISPATCH_MAX_VERSION_2:
+                result = replaceESVersionString(result, "2.0");
+                break;
+            case GLES_DISPATCH_MAX_VERSION_3_0:
+                result = replaceESVersionString(result, "3.0");
+                break;
+            case GLES_DISPATCH_MAX_VERSION_3_1:
+                result = replaceESVersionString(result, "3.1");
+                break;
+            default:
+                break;
+            }
         } else {
-            result = "OpenGL ES 3.0";
+            result = replaceESVersionString(result, "2.0");
         }
     } else if (name == GL_EXTENSIONS) {
         // We need to drop a few extensions from the list reported by the driver
@@ -359,8 +429,16 @@ static EGLint rcGetGLString_filter(EGLenum name, void* buffer, EGLint bufferSize
         "GL_OES_standard_derivatives",
         "GL_OES_texture_npot",
         "GL_OES_rgb8_rgba8",
-        }; 
 
+        "GL_OES_framebuffer_object",
+
+        // some games needs those extensions, e.g. yuanshen
+        "GL_EXT_color_buffer_float",
+        "GL_EXT_color_buffer_half_float",
+        "GL_EXT_texture_format_BGRA8888",
+        };
+
+        GLESDispatchMaxVersion maxVersion = FrameBuffer::getMaxGLESVersion();
         result = filter_extensions(result, whitelisted_extensions);
 
         result += " GL_OES_vertex_array_object";  //fix some webview render vertex error
@@ -369,11 +447,23 @@ static EGLint rcGetGLString_filter(EGLenum name, void* buffer, EGLint bufferSize
             result += " GL_OES_framebuffer_object";  //fix 网易云手写笔记界面退出
         }
 
-        if (!isGLESDynamicVersionEnabled()) {
-            result += " ANDROID_EMU_gles_max_version_2_0";
-        } else {
-            result += " ANDROID_EMU_gles_max_version_3_0";
+        GLESDispatchMaxVersion guestExtVer = GLES_DISPATCH_MAX_VERSION_2;
+        if (isGLESDynamicVersionEnabled()) {
+            // If the image is in ES 3 mode, add GL_OES_EGL_image_external_essl3 for better Skia support.
+            result += " GL_OES_EGL_image_external_essl3";
+            guestExtVer = maxVersion;
         }
+
+        // ASTC LDR compressed texture support.
+        result += " GL_KHR_texture_compression_astc_ldr";
+
+        // BPTC compressed texture support
+        if (emugl_feature_is_enabled(android::featurecontrol::BptcTextureSupport)) {
+            result += "GL_EXT_texture_compression_bptc ";
+        }
+
+        result += " ";
+        result += maxVersionToFeatureString(guestExtVer);
     }
 
     ////syslog(LOG_DEBUG,"return result = %s",result.c_str());
@@ -406,7 +496,7 @@ static EGLint rcQueryEGLString(EGLenum name, void* buffer, EGLint bufferSize) {
             eglStr += "EGL_KHR_create_context ";
         }
     }
-    
+
     int len = eglStr.size() + 1;
     if (!buffer || len > bufferSize) {
         return -len;
@@ -478,58 +568,6 @@ static bool shouldEnableVulkanShaderFloat16Int8() {
 
 static bool shouldEnableAsyncQueueSubmit() {
     return shouldEnableVulkan();
-}
-
-android::base::StringView maxVersionToFeatureString(GLESDispatchMaxVersion version) {
-    switch (version) {
-        case GLES_DISPATCH_MAX_VERSION_2:
-            return kGLESDynamicVersion_2;
-        case GLES_DISPATCH_MAX_VERSION_3_0:
-            return kGLESDynamicVersion_3_0;
-        case GLES_DISPATCH_MAX_VERSION_3_1:
-            return kGLESDynamicVersion_3_1;
-        default:
-            return kGLESDynamicVersion_2;
-    }
-}
-
-// OpenGL ES 3.x support involves changing the GL_VERSION string, which is
-// assumed to be formatted in the following way:
-// "OpenGL ES-CM 1.m <vendor-info>" or
-// "OpenGL ES M.m <vendor-info>"
-// where M is the major version number and m is minor version number.  If the
-// GL_VERSION string doesn't reflect the maximum available version of OpenGL
-// ES, many apps will not be able to detect support.  We need to mess with the
-// version string in the first place since the underlying backend (whether it
-// is Translator, SwiftShader, ANGLE, et al) may not advertise a GL_VERSION
-// string reflecting their maximum capabilities.
-std::string replaceESVersionString(const std::string& prev,
-                                   android::base::StringView newver) {
-
-    // There is no need to fiddle with the string
-    // if we are in a ES 1.x context.
-    // Such contexts are considered as a special case that must
-    // be untouched.
-    if (prev.find("ES-CM") != std::string::npos) {
-        return prev;
-    }
-
-    size_t esStart = prev.find("ES ");
-    size_t esEnd = prev.find(" ", esStart + 3);
-
-    if (esStart == std::string::npos ||
-        esEnd == std::string::npos) {
-        // Account for out-of-spec version strings.
-        fprintf(stderr, "%s: Error: invalid OpenGL ES version string %s\n",
-                __func__, prev.c_str());
-        return prev;
-    }
-
-    std::string res = prev.substr(0, esStart + 3);
-    res += newver;
-    res += prev.substr(esEnd);
-
-    return res;
 }
 
 // If the GLES3 feature is disabled, we also want to splice out
@@ -967,13 +1005,13 @@ static int rcFlushWindowColorBuffer(uint32_t windowSurface)
         GRSYNC_DPRINT("unlock gralloc cb lock");
         return -1;
     }
-     
+
     #ifdef KY_ENABLE_VULKAN
     // Update from Vulkan if necessary
     goldfish_vk::updateColorBufferFromVkImage(
         fb->getWindowSurfaceColorBufferHandle(windowSurface));
     #endif
-    
+
     if (!fb->flushWindowSurfaceColorBuffer(windowSurface)) {
         GRSYNC_DPRINT("unlock gralloc cb lock }");
         return -1;
@@ -1134,7 +1172,7 @@ static int rcUpdateColorBuffer(uint32_t colorBuffer,
 
     GRSYNC_DPRINT("unlock gralloc cb lock");
     sGrallocSync->unlockColorBufferPrepare();
-    
+
     #ifdef KY_ENABLE_VULKAN
     // Update to Vulkan if necessary
     goldfish_vk::updateVkImageFromColorBuffer(colorBuffer);
@@ -1345,7 +1383,7 @@ static int rcCompose(uint32_t bufferSize, void* buffer) {
         return -1;
     }
     //syslog(LOG_DEBUG,", rcCompose tid = %ld",pthread_self());
-    return fb->compose(bufferSize, buffer);    
+    return fb->compose(bufferSize, buffer);
 }
 
 static int rcCreateDisplay(uint32_t* displayId) {
@@ -1528,7 +1566,7 @@ static int32_t rcMapGpaToBufferHandle(uint32_t bufferHandle, uint64_t gpa) {
 static int32_t rcMapGpaToBufferHandle2(uint32_t bufferHandle,
                                        uint64_t gpa,
                                        uint64_t size) {
-    #ifdef KY_ENABLE_VULKAN                                       
+    #ifdef KY_ENABLE_VULKAN
     int32_t result = goldfish_vk::mapGpaToBufferHandle(bufferHandle, gpa, size);
     if (result < 0) {
         fprintf(stderr,
@@ -1554,8 +1592,8 @@ static void rcSetTracingForPuid(uint64_t puid, uint32_t enable, uint64_t time) {
     }
 }
 
-struct VirtualDisplay_t {    
-    uint32_t id;    
+struct VirtualDisplay_t {
+    uint32_t id;
     uint32_t bo_name;
     int32_t orientation;
 };
@@ -1568,9 +1606,9 @@ static void rcPostVirtualDisplay (const char* name, uint32_t id, uint32_t bo_nam
         bo_name,
         orientation,
     };
-    
+
     virtual_display_ts.push_back(display);
-    
+
     return;
 }
 
@@ -1584,7 +1622,7 @@ static void rcPostAllVirtualDisplaysDone() {
         fb->post(display.id, display.bo_name, 540, 960, display.orientation, true);
     }
     virtual_display_ts.clear();
-    return ;    
+    return ;
 }
 
 static void rcPostCaptureScreenColorBuffer(uint32_t id) {
@@ -1652,7 +1690,7 @@ void initRenderControlContext(renderControl_decoder_context_t *dec) {
     dec->rcMapGpaToBufferHandle2 = rcMapGpaToBufferHandle2;
     dec->rcFlushWindowColorBufferAsyncWithFrameNumber = rcFlushWindowColorBufferAsyncWithFrameNumber;
     dec->rcSetTracingForPuid = rcSetTracingForPuid;
-    
+
     //****************************** add by hcl for postVirtualDisplay start
     dec->rcPostVirtualDisplay = rcPostVirtualDisplay;
     dec->rcPostAllVirtualDisplaysDone = rcPostAllVirtualDisplaysDone;
