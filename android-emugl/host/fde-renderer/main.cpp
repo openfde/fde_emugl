@@ -50,6 +50,7 @@ int main(int argc, char* argv[]) {
   if (android_startOpenglesRenderer(0, 0, &gles_major_version,
                                     &gles_minor_version) != 0) {
     syslog(LOG_ERR, "Failed to start Opengles Renderer\n");
+    android_stopOpenglesRenderer(true);
     return -5;
   }
   syslog(LOG_DEBUG, " gles_major_version = %d", gles_major_version);

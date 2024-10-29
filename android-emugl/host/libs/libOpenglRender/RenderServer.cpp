@@ -29,7 +29,7 @@
 #include <syslog.h>
 
 #include <assert.h>
-#include <sys/types.h> 
+#include <sys/types.h>
 #include <sys/stat.h>
 #include <libgen.h>
 namespace emugl {
@@ -63,7 +63,7 @@ RenderServer *RenderServer::create(char* addr, size_t addrLen) {
     RenderServer *server = new RenderServer();
     if (!server) {
         return NULL;
-    }   
+    }
      server->m_listenSock = new UnixStream();
     //syslog(LOG_DEBUG," RenderServer 222");
     char addrstr[ChannelStream::MAX_ADDRSTR_LEN];
@@ -74,7 +74,7 @@ RenderServer *RenderServer::create(char* addr, size_t addrLen) {
     }
     //syslog(LOG_DEBUG," RenderServer 333");
     //syslog(LOG_DEBUG," rendererAddress = %s",addrstr);
-    
+
     size_t len = strlen(addrstr) + 1;
     if (len > addrLen) {
         ERR("RenderServer address name too big for provided buffer: %zu > %zu\n",
@@ -83,11 +83,11 @@ RenderServer *RenderServer::create(char* addr, size_t addrLen) {
         return NULL;
     }
     //syslog(LOG_DEBUG," RenderServer 444");
-    
-    memcpy(addr, addrstr, len);        
+
+    memcpy(addr, addrstr, len);
     chmod(addrstr, 0777);
-    chmod(dirname(addrstr), 0777);    
-        
+    chmod(dirname(addrstr), 0777);
+
     return server;
 }
 
@@ -124,12 +124,12 @@ intptr_t RenderServer::main() {
                 fprintf(stderr,"it is not %s: %s\n", PIPE_OPENGLES, temp);
                 delete stream;
                 continue;
-            }            
+            }
             char * result = "OK";
             unsigned char *tmpBuf = stream->alloc(strlen(result)+1);
             memcpy((char *)tmpBuf, result, strlen(result)+1);
             stream->flush();
-        }        
+        }
 
         unsigned int clientFlags;
         if (!stream->readFully(&clientFlags, sizeof(unsigned int))) {
@@ -154,6 +154,7 @@ intptr_t RenderServer::main() {
         } else if (!rt->start()) {
             fprintf(stderr,"Failed to start RenderThread\n");
             delete rt;
+            rt = NULL;
             delete stream;
         }
 
@@ -173,7 +174,7 @@ intptr_t RenderServer::main() {
             if ((*t)->isFinished()) {
                 pthread_t tid = (*t)->gettid();
                 FrameBuffer *fb = FrameBuffer::getFB();
-                fb->closePthreadAloneColorBuffer(tid);                
+                fb->closePthreadAloneColorBuffer(tid);
                 delete (*t);
                 threads.erase(t);
             }
@@ -184,12 +185,12 @@ intptr_t RenderServer::main() {
             threads.insert(rt);
             //syslog(LOG_DEBUG,"UUUU threads.insert(rt) count = %d",count);
             //DBG("Started new RenderThread\n");
-        }        
+        }
         if(count < 10000) {
             count ++;
             //syslog(LOG_DEBUG,"PPPP threads.insert(rt) count +1");
         }
-            
+
     }
 
     //

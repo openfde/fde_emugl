@@ -169,7 +169,10 @@ int android_startOpenglesRenderer(int width, int height, int* glesMajorVersion_o
     }
 
     size_t addrLen = sizeof(mGlesAddress);
-    sRenderer->StartRenderServer(mGlesAddress,addrLen);
+    if (!sRenderer->StartRenderServer(mGlesAddress,addrLen)){
+        E("Can't start render server!");
+        return -1;
+    }
     //D("mGlesAddress = %s",mGlesAddress);
     // after initRenderer is a success, the maximum GLES API is calculated depending
     // on feature control and host GPU support. Set the obtained GLES version here.
