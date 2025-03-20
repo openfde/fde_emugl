@@ -28,6 +28,7 @@
 #include <string>
 #include <pwd.h>
 #include "syslog.h"
+#include <stdint.h>
 
 #define BUF_SIZE 4096
 
@@ -51,7 +52,7 @@ static std::string getCurrentUserName() {
         char buf[1024];
 
         memset(&buf, 0, sizeof(buf));
-        uint32_t uid = getuid();
+        uid_t uid = getuid();
         (void)getpwuid_r(uid, &pwd, buf, 1024, &result);
         if (!result) {
             syslog(LOG_DEBUG, "getpwnam_r error,uid = %d",uid);

@@ -15,6 +15,7 @@
 
 #include "android/base/Compiler.h"
 #include "android/opengl/gpuinfo.h"
+#include <stdint.h>
 
 namespace android {
 
